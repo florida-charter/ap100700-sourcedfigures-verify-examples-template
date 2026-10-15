@@ -48,7 +48,7 @@ def check_fact(base_url: str, api_key: str, arguments: dict[str, object]) -> dic
 def main() -> int:
     base = os.environ["VERIFY_BASE_URL"]
     key = os.environ["VERIFY_API_KEY"]
-    path = os.environ.get("VERIFY_FACTS_FILE", "verify-facts.json")
+    path = os.environ.get("VERIFY_FACTS_FILE", "examples/verify-facts.json")
     facts = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(facts, list) or not facts:
         print("facts file is empty", file=sys.stderr)

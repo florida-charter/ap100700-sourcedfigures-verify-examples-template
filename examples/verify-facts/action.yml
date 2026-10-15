@@ -10,7 +10,7 @@ inputs:
   facts_file:
     description: JSON list of check_fact arguments, relative to the workspace.
     required: false
-    default: verify-facts.json
+    default: examples/verify-facts.json
 runs:
   using: composite
   steps:

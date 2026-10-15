@@ -20,7 +20,7 @@ Do not submit a directory listing from this file.
 - `examples/javascript/check_fact.mjs`
 
 Both read `VERIFY_BASE_URL`, `VERIFY_API_KEY`, and `VERIFY_FACTS_FILE`
-(default `verify-facts.json`). A fact that does not match exits non-zero.
+(default `examples/verify-facts.json`). A fact that does not match exits non-zero.
 The key comes from `POST {origin}/signup`, which issues the Free tier.
 
 ## Action

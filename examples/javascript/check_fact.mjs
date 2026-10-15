@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const base = process.env.VERIFY_BASE_URL;
 const key = process.env.VERIFY_API_KEY;
-const file = process.env.VERIFY_FACTS_FILE ?? "verify-facts.json";
+const file = process.env.VERIFY_FACTS_FILE ?? "examples/verify-facts.json";
 
 if (!base || !key) {
   console.error("VERIFY_BASE_URL and VERIFY_API_KEY are required");

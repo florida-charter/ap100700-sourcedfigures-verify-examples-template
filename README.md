@@ -29,7 +29,7 @@ python3 examples/python/check_fact.py
 node examples/javascript/check_fact.mjs
 ```
 
-`VERIFY_FACTS_FILE` defaults to `verify-facts.json`. A verdict other than
+`VERIFY_FACTS_FILE` defaults to `examples/verify-facts.json`. A verdict other than
 `matches`, or a rejected call, exits non-zero.
 
 ## Action
