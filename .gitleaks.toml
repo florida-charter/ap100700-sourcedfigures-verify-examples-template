@@ -1,0 +1,10 @@
+title = "FCG gitleaks allowlist"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Files that are not secrets despite looking like them to gitleaks"
+paths = [
+  '''\.secrets\.baseline$''',
+]

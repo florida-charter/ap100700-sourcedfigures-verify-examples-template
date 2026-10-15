@@ -1,0 +1,71 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    # A public fork pull request must not run on the self-hosted runner.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, fcg-nas, slim]
+    steps:
+      - uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-preflight@v2.0.1
+        with:
+          token: ${{ secrets.FCG_HOOKS_TOKEN }}
+          token-required: "false"
+      - uses: actions/checkout@v7
+      - name: Require FCG bootstrap files
+        run: |
+          set -euo pipefail
+          test -f .fcg/repo.yaml
+          test -f CODEOWNERS
+          test -f LICENSE
+          test -f CLAUDE.md
+          test -f llms-install.md
+          test -f .github/dependabot.yml
+          grep -q 'All rights reserved' LICENSE
+          grep -q 'No license is granted' LICENSE
+          grep -q 'Florida Charter Group LLC' LICENSE
+          grep -q '\* @AtwoodTM' CODEOWNERS
+          grep -q 'package-ecosystem: "github-actions"' .github/dependabot.yml
+          grep -q 'Informational only. Not investment, legal or tax advice.' llms-install.md
+          repo_name="${GITHUB_REPOSITORY##*/}"
+          ap_id="$(printf '%s' "$repo_name" | sed -E 's/^(ap[0-9]+).*/\1/' | tr '[:lower:]' '[:upper:]')"
+          suffix="${repo_name##*-}"
+          test "$suffix" = "template"
+          grep -q "^ap_id: ${ap_id}$" .fcg/repo.yaml
+          grep -q "^repo: ${repo_name}$" .fcg/repo.yaml
+          grep -q "^type: template$" .fcg/repo.yaml
+          python3 scripts/damm_id.py verify AP100700
+          test "$(python3 scripts/damm_id.py check 10070)" = "100700"
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install prek
+        env:
+          PREK_VERSION: "0.5.4"
+          PREK_SHA256: "6147dfe64051af590f4bfc2c073a0780fb5e2cc37d9eab8e47fe9fe26c7dfb80"  # pragma: allowlist secret
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          curl -sSLo /tmp/prek.tar.gz \
+            "https://github.com/j178/prek/releases/download/v${PREK_VERSION}/prek-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${PREK_SHA256}  /tmp/prek.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/prek.tar.gz -C /tmp
+          install -m 0755 /tmp/prek-x86_64-unknown-linux-gnu/prek "$HOME/.local/bin/prek"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          prek --version
+      - name: Install pre-commit hook environments
+        uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-token-run@v2.0.1
+        with:
+          token: ${{ secrets.FCG_HOOKS_TOKEN }}
+          run: prek install-hooks
+      - name: Run pre-commit
+        run: prek run --all-files --show-diff-on-failure --color=always

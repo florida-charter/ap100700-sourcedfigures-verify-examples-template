@@ -1,0 +1,6 @@
+# FCG repository classification (fcg-repo-standards).
+# GitHub custom properties are unavailable for type on this org, so type lives here.
+# Suffix in the repo name and this type must agree.
+ap_id: AP100700
+repo: ap100700-sourcedfigures-verify-examples-template
+type: template

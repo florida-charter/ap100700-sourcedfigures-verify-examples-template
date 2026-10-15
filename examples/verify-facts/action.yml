@@ -1,0 +1,23 @@
+name: verify facts
+description: Check figures in a repo against SourcedFigures Verify on the Free tier.
+inputs:
+  base_url:
+    description: Verify origin. No production host is set in this repo.
+    required: true
+  api_key:
+    description: Bearer key from POST /signup. Free tier.
+    required: true
+  facts_file:
+    description: JSON list of check_fact arguments, relative to the workspace.
+    required: false
+    default: verify-facts.json
+runs:
+  using: composite
+  steps:
+    - name: Check figures
+      shell: bash
+      env:
+        VERIFY_BASE_URL: ${{ inputs.base_url }}
+        VERIFY_API_KEY: ${{ inputs.api_key }}
+        VERIFY_FACTS_FILE: ${{ inputs.facts_file }}
+      run: python3 "${{ github.action_path }}/../python/check_fact.py"

@@ -1,0 +1,24 @@
+[project]
+name = "sourcedfigures-verify-examples"
+version = "0.1.0"
+description = "Copy-paste examples for SourcedFigures Verify. FCG AP100700."
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Florida Charter Group LLC" }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["examples"]
+extend-exclude = ["scripts/damm_id.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.bandit]
+# B310 flags urllib.request.urlopen. The snippet calls whatever origin the
+# caller passes in VERIFY_BASE_URL, including the local Free-tier test host.
+skips = ["B310"]

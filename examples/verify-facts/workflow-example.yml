@@ -1,0 +1,15 @@
+# Sample for a caller. Not registered under .github/workflows here.
+# The key is a Free-tier key from POST /signup. No production host is set.
+name: verify facts
+on:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: florida-charter/ap100700-sourcedfigures-verify-examples-template/examples/verify-facts@main
+        with:
+          base_url: ${{ vars.VERIFY_BASE_URL }}
+          api_key: ${{ secrets.VERIFY_API_KEY }}
+          facts_file: verify-facts.json

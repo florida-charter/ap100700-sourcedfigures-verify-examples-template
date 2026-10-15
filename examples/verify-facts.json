@@ -1,0 +1,13 @@
+[
+  {
+    "claim_value": "5.28",
+    "claim_unit": "percent",
+    "claim_period": "2026-10-07",
+    "official_value": "5.28",
+    "official_unit": "percent",
+    "official_period": "2026-10-07",
+    "source_url": "https://www.federalreserve.gov/releases/h15/",
+    "as_of": "2026-10-07",
+    "retrieved_at": "2026-10-09T12:00:00+00:00"
+  }
+]
