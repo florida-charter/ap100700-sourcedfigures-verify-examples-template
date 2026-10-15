@@ -27,8 +27,11 @@ That test signs up a Free key and requires a `matches` verdict.
 
 - **No `.tf` files and no `infra/` directory.**
 - **No secrets, no API key, and no production origin in the tree.**
-- Fork pull requests do not run on the self-hosted runner. The `check` job
-  runs only for a push, or for a pull request whose head is this repository.
+- CI runs on `ubuntu-latest`. The org runner groups do not allow public
+  repositories, and a public workflow cannot call the private hooks action.
+  `prek install-hooks` still receives `FCG_HOOKS_TOKEN` for the private hook
+  repo, through git's `GIT_CONFIG_*` environment, and the later pre-commit
+  step does not.
 - Verdict wording stays `matches`, `does_not_match`, or `unverifiable`.
 
 ## Layout

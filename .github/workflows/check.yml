@@ -11,14 +11,11 @@ permissions:
 jobs:
   check:
     name: check
-    # A public fork pull request must not run on the self-hosted runner.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, fcg-nas, slim]
+    # Public repositories cannot use the org runner groups, and a public
+    # workflow cannot call the private hooks action. ubuntu-latest plus the
+    # hooks token keeps the private hook repo installable.
+    runs-on: ubuntu-latest
     steps:
-      - uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-preflight@v2.0.1
-        with:
-          token: ${{ secrets.FCG_HOOKS_TOKEN }}
-          token-required: "false"
       - uses: actions/checkout@v7
       - name: Require FCG bootstrap files
         run: |
@@ -63,9 +60,15 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           prek --version
       - name: Install pre-commit hook environments
-        uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-token-run@v2.0.1
-        with:
-          token: ${{ secrets.FCG_HOOKS_TOKEN }}
-          run: prek install-hooks
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.FCG_HOOKS_TOKEN }}@github.com/florida-charter/.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/florida-charter/
+          FCG_HOOKS_TOKEN: ${{ secrets.FCG_HOOKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${FCG_HOOKS_TOKEN:?FCG_HOOKS_TOKEN is not available to this run; token-less runs fail closed (PLAT-900)}"
+          unset FCG_HOOKS_TOKEN
+          prek install-hooks
       - name: Run pre-commit
         run: prek run --all-files --show-diff-on-failure --color=always
