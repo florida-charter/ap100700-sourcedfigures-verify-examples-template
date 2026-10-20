@@ -58,7 +58,7 @@ jobs:
           tar -xzf /tmp/prek.tar.gz -C /tmp
           install -m 0755 /tmp/prek-x86_64-unknown-linux-gnu/prek "$HOME/.local/bin/prek"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          prek --version
+          "$HOME/.local/bin/prek" --version
       - name: Install pre-commit hook environments
         env:
           GIT_CONFIG_COUNT: "1"
