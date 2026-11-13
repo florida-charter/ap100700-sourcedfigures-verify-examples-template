@@ -1,0 +1,384 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    # No `synchronize`: this review duplicates the G6 review round the
+    # git-commit-workflow skill already runs locally before every push (the
+    # same /code-review:code-review skill), and G6's own rule is one round per
+    # push, not one per commit -- `synchronize` fired this a second time on
+    # every commit pushed to an open PR. `opened`/`ready_for_review`/`reopened`
+    # stay: each is a single per-PR-lifecycle event, closer to G6's cadence,
+    # giving an independent GitHub-native second opinion once rather than
+    # repeatedly (PLAT-320).
+    types: [opened, ready_for_review, reopened]
+    # Optional: Only run on specific file changes
+    # paths:
+    #   - "src/**/*.ts"
+    #   - "src/**/*.tsx"
+    #   - "src/**/*.js"
+    #   - "src/**/*.jsx"
+
+jobs:
+  claude-review:
+    # Optional: Filter by PR author
+    # if: |
+    #   github.event.pull_request.user.login == 'external-contributor' ||
+    #   github.event.pull_request.user.login == 'new-developer' ||
+    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+
+    # Skip this job outright on Dependabot-triggered pull requests. Two
+    # independent things stop the review there, either one sufficient:
+    #
+    #   1. GitHub withholds Actions secrets from Dependabot-triggered runs --
+    #      they read a separate Dependabot secrets store -- so
+    #      `secrets.CLAUDE_CODE_OAUTH_TOKEN` is empty on exactly that class of
+    #      run and on no other.
+    #   2. The action refuses bot actors by default, and that fires first:
+    #      "Workflow initiated by non-human actor: dependabot (type: Bot)."
+    #
+    # So populating a second copy of the credential in the Dependabot store
+    # would not help -- it would also need `allowed_bots` -- and a second copy
+    # is a second thing to rotate. Running the job at all only burns a runner
+    # on a guaranteed failure and leaves a permanently red check on every
+    # Dependabot pull request. Same detection expression the pre-commit job
+    # uses for its own credential, so the repo has one idiom, not two.
+    #
+    # `claude-review-ran` still runs (`if: always()`) and posts an explicit
+    # "deliberately skipped" notice rather than reading the resulting empty
+    # output as an unexplained failure -- see the matching block there
+    # (PLAT-509).
+    if: |
+      (github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]')
+      && (github.event_name != 'pull_request'
+          || github.event.pull_request.head.repo.full_name == github.repository)
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    # Consumed by the `claude-review-ran` job below, which is what actually
+    # reports the outcome on the pull request.
+    outputs:
+      ran: ${{ steps.verdict.outputs.ran }}
+      reason: ${{ steps.verdict.outputs.reason }}
+
+    steps:
+      # PLAT-900: fail fork PRs before checkout instead of skipping them.
+      - uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-preflight@v2.0.1
+        with:
+          token-required: "false"
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          # The alias, not a dated model ID, so the review follows the current
+          # Sonnet instead of breaking when that model is retired (PLAT-1144).
+          claude_args: '--model sonnet'
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          # Folded so the line stays within the strictest yamllint
+          # max-line-length in the fleet (100). `>-` joins the lines with a
+          # single space, reproducing the original one-line prompt exactly.
+          prompt: >-
+            /code-review:code-review
+            ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options
+
+      - name: Determine whether the review actually ran
+        id: verdict
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          # `.outcome` reports the step's actual pass/fail result; `.conclusion`
+          # is what `continue-on-error` would launder it to (`success`
+          # regardless) if that were ever added to the `claude-review` step.
+          # Neither is set today, so the two agree now, but `.outcome` is the
+          # one that stays correct if that changes (PLAT-530).
+          CLAUDE_REVIEW_OUTCOME: ${{ steps.claude-review.outcome }}
+          WORKFLOW_FILE: .github/workflows/claude-code-review.yml
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          # Anthropic's GitHub App refuses the OIDC token exchange when the
+          # running workflow file differs from the copy on the default branch.
+          # The action then prints a ::warning:: and *exits 0*, so neither the
+          # step outcome nor the job conclusion tells a suppressed review apart
+          # from a completed one -- every step reports `success` either way
+          # (PLAT-430).
+          #
+          # `execution_file` is set only once Claude has produced a result, so
+          # its presence is positive evidence that the review happened. Keying
+          # off the artifact rather than off Anthropic's rule matters: it fails
+          # closed. If the suppression mechanism ever changes shape, "no
+          # artifact" still reads as "no review", where a local re-implementation
+          # of the rule would quietly drift out of sync and start lying again.
+          #
+          # But "produced a result" is not the same as "produced a review".
+          # The action writes `execution_file` -- and sets the output -- as
+          # soon as the Claude Agent SDK returns any parseable result, success
+          # or error alike: an invalid credential fails the SDK call almost
+          # immediately (measured on PR #90: `is_error: true`,
+          # `duration_ms: 130`, `num_turns: 1`, `total_cost_usd: 0`) and still
+          # leaves an execution log behind. So the artifact alone proves the SDK
+          # was invoked, not that it completed -- only the step's own outcome
+          # distinguishes an errored run from a real review (PLAT-530, seen on
+          # PRs #90 and #91).
+          # `CLAUDE_REVIEW_OUTCOME` is default-expanded as belt-and-braces only:
+          # an `env:` mapping defines the variable even when its expression
+          # resolves to nothing, so `set -u` would not fire on a skipped step
+          # either way. Kept so the guard does not depend on that detail.
+          if [ -n "${EXECUTION_FILE}" ] && [ "${CLAUDE_REVIEW_OUTCOME:-}" = "success" ]; then
+            echo "ran=true" >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "ran=false" >>"${GITHUB_OUTPUT}"
+
+          # An artifact with a non-success outcome is its own distinct case --
+          # the SDK ran and failed, not "no review attempted" -- so it gets its
+          # own reason rather than falling into the workflow-modified/unknown
+          # classification below, which assumes no artifact at all (PLAT-530).
+          if [ -n "${EXECUTION_FILE}" ] && [ "${CLAUDE_REVIEW_OUTCOME:-}" != "success" ]; then
+            echo "reason=sdk-error" >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          # Separate the benign, expected cause -- this PR edits the very file
+          # the App validates -- from any other reason the review came back
+          # empty, because a reader has to act differently on each. The contents
+          # API returns the git blob SHA, which is what `git hash-object`
+          # computes locally.
+          head_blob="$(git hash-object "${WORKFLOW_FILE}")"
+
+          if base_blob="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/contents/${WORKFLOW_FILE}?ref=${DEFAULT_BRANCH}" \
+            --jq .sha 2>/dev/null)"; then
+            if [ "${head_blob}" != "${base_blob}" ]; then
+              echo "reason=workflow-modified" >>"${GITHUB_OUTPUT}"
+            else
+              echo "reason=unknown" >>"${GITHUB_OUTPUT}"
+            fi
+          elif gh api "repos/${GITHUB_REPOSITORY}" --jq .id >/dev/null 2>&1; then
+            # The API is reachable, so the lookup failed because the file is
+            # absent from the default branch -- this PR is adding the workflow.
+            # The App rejects that for the same benign reason ("must exist and
+            # have identical content"), so it gets the same notice.
+            echo "reason=workflow-modified" >>"${GITHUB_OUTPUT}"
+          else
+            # A failed lookup on its own must not be read as "this PR edits the
+            # workflow": an unreachable or rate-limited API would otherwise
+            # dress an unexplained empty review up as the benign case.
+            echo "reason=unknown" >>"${GITHUB_OUTPUT}"
+          fi
+
+  # Named for what it asserts, so that a red tick here is accurate information
+  # rather than noise: the Claude review did not review this pull request. Not a
+  # required status check in any repo that runs this workflow, so it reports
+  # without blocking the merge (PLAT-430).
+  claude-review-ran:
+    name: Claude review actually ran
+    needs: claude-review
+    if: >
+      (always())
+      && (github.event_name != 'pull_request'
+          || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      # Narrower than the review job, and deliberately held by a job that never
+      # executes model-driven code: this one only writes the notice comment.
+      pull-requests: write
+
+    steps:
+      # PLAT-900: fail fork PRs before checkout instead of skipping them.
+      - uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-preflight@v2.0.1
+        with:
+          token-required: "false"
+
+      - name: Report on the pull request whether the review ran
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAN: ${{ needs.claude-review.outputs.ran }}
+          REASON: ${{ needs.claude-review.outputs.reason }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          RUN_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MARKER: '<!-- plat-430-claude-review-status -->'
+          # Read from the event payload, not from `claude-review`'s outputs: a
+          # skipped job (see that job's `if:`) produces no outputs at all, so
+          # `needs.claude-review.outputs.ran` arrives empty rather than `false`
+          # -- indistinguishable, from this job's outputs alone, from "something
+          # went wrong". The payload still says who opened the pull request
+          # whether or not the upstream job ran (PLAT-509).
+          IS_DEPENDABOT: >-
+            ${{ github.actor == 'dependabot[bot]'
+            || github.event.pull_request.user.login == 'dependabot[bot]' }}
+        run: |
+          set -euo pipefail
+
+          # Collect *every* marker comment rather than the first. The job only
+          # ever updates an existing notice, so duplicates should not arise --
+          # but two runs racing could each post one, and singling out one id
+          # would then leave the others on the PR forever. `.[]` emits nothing
+          # for a page with no match, so this stays empty when there is no
+          # notice yet.
+          #
+          # Assigned from a command substitution rather than piped into
+          # `mapfile` through a process substitution: `mapfile` succeeds even
+          # when the command feeding it fails, which would turn a rate-limited
+          # lookup into a silent "no notice yet" and post a duplicate. Report
+          # the verdict either way -- a suppression nobody sees is the exact
+          # failure this job exists to prevent, and a spare comment is the
+          # cheaper of the two.
+          if ! ids="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq 'map(select(.body | contains($ENV.MARKER)))[].id')"; then
+            echo "::warning::Could not list existing comments; a duplicate notice may result."
+            ids=""
+          fi
+
+          markers=()
+          while IFS= read -r id; do
+            [ -n "${id}" ] || continue
+            markers+=("${id}")
+          done <<<"${ids}"
+
+          # A Dependabot pull request skips `claude-review` outright via that
+          # job's `if:` -- see the block there for why. This has to run before
+          # the RAN check below, because a *skipped* job yields an empty
+          # `needs.claude-review.outputs.ran`, and the RAN check reads empty the
+          # same as "did not run" -- which would fall through to
+          # `reason=unknown` and report an unexplained failure about a review
+          # that could never have happened. Posting a comment at all, rather
+          # than just exiting green, is the point: the skip has to be explicit
+          # and visible on the pull request, not a silent green (PLAT-509).
+          if [ "${IS_DEPENDABOT}" = "true" ]; then
+            body="${RUNNER_TEMP}/claude-review-status.md"
+            {
+              echo "${MARKER}"
+              echo "### :information_source: Claude review deliberately skipped (Dependabot PR)"
+              echo
+              echo "This pull request was opened by Dependabot. GitHub does not serve"
+              echo "Actions secrets -- including \`CLAUDE_CODE_OAUTH_TOKEN\` -- to"
+              echo "Dependabot-triggered runs; they read from a separate Dependabot"
+              echo "secrets store instead, so no credential this workflow holds could"
+              echo "ever reach the review. The action also refuses bot actors by"
+              echo "default, so the job is skipped outright rather than run and failed"
+              echo "on either count (PLAT-509)."
+              echo
+              echo "**This is expected, not a failure.** Dependabot pull requests are"
+              echo "dependency-version changes; they are reviewed by the build and test"
+              echo "gates instead of this action."
+            } >"${body}"
+
+            payload="${RUNNER_TEMP}/claude-review-status.json"
+            jq -Rs '{body: .}' <"${body}" >"${payload}"
+
+            # Same dedupe shape as the notice below: update-and-collapse if a
+            # notice already exists, otherwise post a fresh one.
+            if [ "${#markers[@]}" -gt 0 ]; then
+              gh api -X PATCH "repos/${REPO}/issues/comments/${markers[0]}" --input "${payload}" \
+                >/dev/null ||
+                echo "::error::Could not update the notice comment on this pull request."
+              for id in "${markers[@]:1}"; do
+                gh api -X DELETE "repos/${REPO}/issues/comments/${id}" >/dev/null 2>&1 || true
+              done
+            else
+              gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" --input "${payload}" \
+                >/dev/null ||
+                echo "::error::Could not post the notice comment on this pull request."
+            fi
+
+            echo "Claude review deliberately skipped on this Dependabot PR (PLAT-509)."
+            exit 0
+          fi
+
+          if [ "${RAN}" = "true" ]; then
+            # Clear notices left by an earlier run on this PR (reopened, or
+            # marked ready for review) so the timeline reflects the current
+            # state. Tolerate failure: this is cosmetic, and letting it fail the
+            # step would report "the review did not run" about a review that did.
+            for id in "${markers[@]}"; do
+              gh api -X DELETE "repos/${REPO}/issues/comments/${id}" >/dev/null 2>&1 ||
+                echo "note: could not remove a stale notice comment."
+            done
+            echo "Claude Code Review produced an execution artifact: the review ran."
+            exit 0
+          fi
+
+          body="${RUNNER_TEMP}/claude-review-status.md"
+          {
+            echo "${MARKER}"
+            echo "### :warning: The Claude review did not run on this pull request"
+            echo
+            if [ "${REASON}" = "workflow-modified" ]; then
+              echo "This pull request edits \`.github/workflows/claude-code-review.yml\`."
+              echo "Anthropic's GitHub App declines to issue a token whenever the running"
+              echo "workflow file differs from the copy on the default branch, so the review"
+              echo "was suppressed. That is expected and benign here, and it resolves itself"
+              echo "once this pull request merges."
+            elif [ "${REASON}" = "sdk-error" ]; then
+              # PLAT-530: the SDK was invoked and produced an execution log, but
+              # its own run failed (an invalid OAuth credential is the observed
+              # cause), so no review was ever produced. Say so plainly and rule
+              # out the PLAT-430 benign cause explicitly -- a reader must not
+              # dismiss this as the familiar workflow-modified suppression.
+              echo "Claude **was invoked**, but its run returned an error before it could"
+              echo "produce a review -- this pull request was not reviewed. This is **not**"
+              echo "the usual benign \`workflow-modified\` suppression case: the SDK actually"
+              echo "ran and failed. Worth a look:"
+              echo
+              echo "${RUN_URL}"
+            else
+              echo "The review produced no execution artifact, and this pull request does"
+              echo "**not** edit \`.github/workflows/claude-code-review.yml\` -- so the usual"
+              echo "benign cause does not apply and something else went wrong. Worth a look:"
+              echo
+              echo "${RUN_URL}"
+            fi
+            echo
+            echo "The \`claude-review\` check is green because the action prints a warning and"
+            echo "**exits 0** when it is suppressed. That green means \"the job finished\", not"
+            echo "\"this code was reviewed\" (PLAT-430)."
+            echo
+            echo "**Merging is not blocked.** This check is advisory; it exists so that a"
+            echo "suppressed review is visible here instead of only in the Actions log."
+          } >"${body}"
+
+          payload="${RUNNER_TEMP}/claude-review-status.json"
+          jq -Rs '{body: .}' <"${body}" >"${payload}"
+
+          # The verdict is what this job exists to report; the comment is only
+          # how it is delivered. A write that fails must not mask the verdict,
+          # so it degrades to an annotation and the exit code still stands.
+          if [ "${#markers[@]}" -gt 0 ]; then
+            # Update the oldest notice and collapse any duplicates onto it, so
+            # exactly one survives however many runs raced to create them.
+            gh api -X PATCH "repos/${REPO}/issues/comments/${markers[0]}" \
+              --input "${payload}" >/dev/null ||
+              echo "::error::Could not update the notice comment on this pull request."
+            for id in "${markers[@]:1}"; do
+              gh api -X DELETE "repos/${REPO}/issues/comments/${id}" >/dev/null 2>&1 || true
+            done
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              --input "${payload}" >/dev/null ||
+              echo "::error::Could not post the notice comment on this pull request."
+          fi
+
+          echo "::error::Claude Code Review did not review this pull request" \
+            "(reason: ${REASON:-unknown})."
+          exit 1
