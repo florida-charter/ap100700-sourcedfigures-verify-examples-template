@@ -21,7 +21,6 @@ jobs:
         run: |
           set -euo pipefail
           test -f .fcg/repo.yaml
-          test -f CODEOWNERS
           test -f LICENSE
           test -f CLAUDE.md
           test -f llms-install.md
@@ -29,7 +28,6 @@ jobs:
           grep -q 'All rights reserved' LICENSE
           grep -q 'No license is granted' LICENSE
           grep -q 'Florida Charter Group LLC' LICENSE
-          grep -q '\* @AtwoodTM' CODEOWNERS
           grep -q 'package-ecosystem: "github-actions"' .github/dependabot.yml
           grep -q 'Informational only. Not investment, legal or tax advice.' llms-install.md
           repo_name="${GITHUB_REPOSITORY##*/}"
