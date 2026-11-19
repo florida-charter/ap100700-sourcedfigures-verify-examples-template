@@ -1,0 +1,27 @@
+name: pre-commit
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse forks and require the hooks token
+        uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-preflight@v2.0.1
+        with:
+          token: ${{ secrets.FCG_HOOKS_TOKEN }}
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Run prek
+        uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/prek-ci@v2.1.0
+        with:
+          token: ${{ secrets.FCG_HOOKS_TOKEN }}
