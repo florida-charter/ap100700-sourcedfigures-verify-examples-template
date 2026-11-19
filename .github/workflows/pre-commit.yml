@@ -1,0 +1,45 @@
+name: pre-commit
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse fork pull requests
+        if: github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo '::error::The private hooks require a pull request from this repository.'
+          exit 1
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # GitHub does not resolve cross-repo private actions from public workflows.
+      - name: Fetch the pinned private hooks action
+        env:
+          FCG_HOOKS_TOKEN: ${{ secrets.FCG_HOOKS_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${FCG_HOOKS_TOKEN:?FCG_HOOKS_TOKEN is required to fetch the private hooks action}"
+          mkdir -p .fcg-hook-actions/hooks-token-run
+          printf 'header = "Authorization: Bearer %s"\n' "$FCG_HOOKS_TOKEN" \
+            | curl --fail --silent --show-error --config - \
+                --header 'Accept: application/vnd.github.raw+json' \
+                --output .fcg-hook-actions/hooks-token-run/action.yml \
+                'https://api.github.com/repos/florida-charter/ap100316-universal-precommit-checks-tool/contents/actions/hooks-token-run/action.yml?ref=845104a2df36c3b32013e8c233aa567411455dbc'
+      - name: Run prek
+        uses: ./actions/prek-ci
+        with:
+          token: ${{ secrets.FCG_HOOKS_TOKEN }}
