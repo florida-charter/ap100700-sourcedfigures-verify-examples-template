@@ -1,0 +1,38 @@
+name: FCG prek CI for the public examples repository
+description: Install the fleet's pinned prek release, prepare its hooks, and check every file.
+
+inputs:
+  token:
+    description: The org's read-only hooks token.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install prek
+      shell: bash
+      env:
+        PREK_VERSION: "0.5.10"
+        PREK_SHA256: "5c832a9ccd0855b7c054320d8921d90165a37459d3ac175923bdf121ff1aa9b1"  # pragma: allowlist secret
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/prek.tar.gz"
+        curl -fsSLo "$archive" \
+          "https://github.com/j178/prek/releases/download/v${PREK_VERSION}/prek-x86_64-unknown-linux-gnu.tar.gz"
+        echo "${PREK_SHA256}  $archive" | sha256sum -c -
+        tar -xzf "$archive" -C "$RUNNER_TEMP"
+        install -Dm755 "$RUNNER_TEMP/prek-x86_64-unknown-linux-gnu/prek" "$HOME/.local/bin/prek"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Install hook environments
+      uses: ./.fcg-hook-actions/hooks-token-run
+      with:
+        token: ${{ inputs.token }}
+        run: prek install-hooks
+
+    - name: Run prek
+      shell: bash
+      env:
+        SKIP: no-commit-to-branch
+        GITHUB_TOKEN: ${{ github.token }}
+      run: prek run --all-files --show-diff-on-failure

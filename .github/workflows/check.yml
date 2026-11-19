@@ -11,9 +11,7 @@ permissions:
 jobs:
   check:
     name: check
-    # Public repositories cannot use the org runner groups, and a public
-    # workflow cannot call the private hooks action. ubuntu-latest plus the
-    # hooks token keeps the private hook repo installable.
+    # Public repositories cannot use the org runner groups.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -39,7 +37,3 @@ jobs:
           grep -q "^type: template$" .fcg/repo.yaml
           python3 scripts/damm_id.py verify AP100700
           test "$(python3 scripts/damm_id.py check 10070)" = "100700"
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"

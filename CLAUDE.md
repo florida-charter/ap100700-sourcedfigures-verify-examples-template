@@ -29,9 +29,8 @@ That test signs up a Free key and requires a `matches` verdict.
 - **No secrets, no API key, and no production origin in the tree.**
 - CI runs on `ubuntu-latest`. The org runner groups do not allow public
   repositories, and a public workflow cannot call the private hooks action.
-  `prek install-hooks` still receives `FCG_HOOKS_TOKEN` for the private hook
-  repo, through git's `GIT_CONFIG_*` environment, and the later pre-commit
-  step does not.
+  The `pre-commit` job fetches the pinned `hooks-token-run` action at runtime
+  and uses it to install the private hooks before running prek.
 - Verdict wording stays `matches`, `does_not_match`, or `unverifiable`.
 
 ## Layout
