@@ -19,6 +19,7 @@ build/
 *.log
 trivy-report.json
 dockle-report.json
+/.fcg-hook-actions/
 
 # --- FCG belt-and-suspenders: never track, under any model ---
 .[Ee][Nn][Vv]
