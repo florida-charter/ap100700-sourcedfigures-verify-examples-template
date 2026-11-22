@@ -1,0 +1,99 @@
+name: Claude Code
+
+# This workflow wraps the same action as claude-code-review.yml, whose review
+# Anthropic's GitHub App suppresses whenever the running workflow file differs
+# from the copy on the default branch (PLAT-430). Whether that reaches this
+# workflow depends on the trigger, which decides the ref the run executes from.
+# Both were measured on ap100046-point-and-figure-service PR #83, from a branch
+# that had edited this file:
+#
+#   issue_comment              -> runs from the default branch, so this file
+#                                 matches that copy by construction and the
+#                                 suppression cannot fire. Claude replied.
+#   pull_request_review_comment -> runs from the PR head, so an edit to this
+#                                 file does suppress it. Claude never replied,
+#                                 and the run still reported success.
+#
+# So a mention from a review comment on a branch that edits this file is
+# silently dropped. There is no check to go red -- unlike claude-code-review,
+# this workflow answers a person who is waiting, and the absence of an answer
+# is the signal. Mention Claude in a normal PR comment instead.
+#
+# pull_request_review is deliberately not a trigger (PLAT-911): every
+# review the Copilot bot submits fired this workflow and left a failed,
+# job-less run on the PR.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+
+jobs:
+  claude:
+    # Every branch tests who wrote the mention as well as what it said. Without
+    # that, anyone able to leave a comment can start a job holding
+    # `id-token: write` and reaching the org-level CLAUDE_CODE_OAUTH_TOKEN.
+    #
+    # Repo privacy is deliberately not treated as the guard. That the org is
+    # entirely private, forbids private-repo forks, and defaults members to
+    # `read` is what bounds the exposure today -- but all three are org settings
+    # that can change without anyone opening this file, and nothing here would
+    # notice (PLAT-524).
+    #
+    # The association lives at a different path per event, and `env` is not
+    # available in a job-level `if`, so the list cannot be hoisted into one
+    # place; it is repeated per branch instead. `contains(fromJSON('[...]'), x)`
+    # is an exact set-membership test -- a plain string `contains` would match
+    # `NONE` inside `CONTRIBUTOR`-shaped values.
+    if: |
+      (github.event_name == 'issue_comment' &&
+        contains(github.event.comment.body, '@claude') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+          github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' &&
+        contains(github.event.comment.body, '@claude') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+          github.event.comment.author_association)) ||
+      (github.event_name == 'issues' &&
+        (contains(github.event.issue.body, '@claude') ||
+          contains(github.event.issue.title, '@claude')) &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+          github.event.issue.author_association))
+    runs-on: [self-hosted, linux, x64, slim]
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+      actions: read  # Required for Claude to read CI results on PRs
+    steps:
+      - uses: florida-charter/ap100316-universal-precommit-checks-tool/actions/hooks-preflight@v2.0.1
+        with:
+          token-required: "false"
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # This is an optional setting that allows Claude to read CI results on PRs
+          additional_permissions: |
+            actions: read
+
+          # Optional: Give a custom prompt to Claude. If this is not
+          # specified, Claude will perform the instructions specified in the
+          # comment that tagged it.
+          # prompt: 'Update the pull request description to include a summary of changes.'
+
+          # Optional: Add claude_args to customize behavior and configuration
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options
+          # claude_args: '--allowed-tools Bash(gh pr *)'
