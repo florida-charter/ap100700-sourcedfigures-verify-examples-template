@@ -16,24 +16,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Require FCG bootstrap files
-        run: |
-          set -euo pipefail
-          test -f .fcg/repo.yaml
-          test -f LICENSE
-          test -f CLAUDE.md
-          test -f llms-install.md
-          test -f .github/dependabot.yml
-          grep -q 'All rights reserved' LICENSE
-          grep -q 'No license is granted' LICENSE
-          grep -q 'Florida Charter Group LLC' LICENSE
-          grep -q 'package-ecosystem: "github-actions"' .github/dependabot.yml
-          grep -q 'Informational only. Not investment, legal or tax advice.' llms-install.md
-          repo_name="${GITHUB_REPOSITORY##*/}"
-          ap_id="$(printf '%s' "$repo_name" | sed -E 's/^(ap[0-9]+).*/\1/' | tr '[:lower:]' '[:upper:]')"
-          suffix="${repo_name##*-}"
-          test "$suffix" = "template"
-          grep -q "^ap_id: ${ap_id}$" .fcg/repo.yaml
-          grep -q "^repo: ${repo_name}$" .fcg/repo.yaml
-          grep -q "^type: template$" .fcg/repo.yaml
-          python3 scripts/damm_id.py verify AP100700
-          test "$(python3 scripts/damm_id.py check 10070)" = "100700"
+        run: make check

@@ -49,7 +49,7 @@ scripts/damm_id.py
 ## Commands
 
 ```bash
-python3 scripts/damm_id.py verify AP100700
+make check             # bootstrap, metadata, and check digit
 prek run --all-files
 ```
 
