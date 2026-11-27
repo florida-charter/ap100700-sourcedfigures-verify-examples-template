@@ -44,4 +44,9 @@ with:
 `examples/verify-facts/workflow-example.yml` is a sample. It is not registered
 under `.github/workflows` in this repository.
 
+## Checkout checks
+
+Run `make check` with Bash and Python 3 to validate the bootstrap files and
+repository metadata.
+
 &copy;2026 Florida Charter Group LLC.
